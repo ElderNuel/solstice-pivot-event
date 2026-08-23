@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solstice Events | Staff Kiosk</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #2c3e50; color: #333; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .kiosk-card { background: #fff; padding: 40px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); width: 100%; max-width: 450px; text-align: center; }
+        h1 { color: #2c3e50; margin-bottom: 5px; font-size: 24px; }
+        p.subtitle { color: #7f8c8d; margin-bottom: 30px; font-size: 14px; }
+        input[type="text"] { width: 85%; padding: 15px; margin-bottom: 20px; border: 2px solid #bdc3c7; border-radius: 8px; font-size: 18px; text-align: center; font-weight: bold; text-transform: uppercase; }
+        button { background-color: #1abc9c; color: white; border: none; padding: 15px 20px; border-radius: 8px; cursor: pointer; width: 100%; font-size: 18px; font-weight: bold; transition: background 0.3s; }
+        button:hover { background-color: #16a085; }
+        .status-box { margin-top: 25px; padding: 15px; border-radius: 8px; font-weight: bold; font-size: 18px; display: none; }
+        .status-pending { background-color: #f39c12; color: #fff; display: block; }
+        .status-success { background-color: #27ae60; color: #fff; display: block; }
+        .status-error { background-color: #e74c3c; color: #fff; display: block; }
+    </style>
+</head>
+<body>
+
+<div class="kiosk-card">
+    <h1>Solstice Events Co.</h1>
+    <p class="subtitle">Badge Print & Check-in Kiosk</p>
+    
+    <input type="text" id="attendeeId" placeholder="SCAN QR / ENTER ID (e.g., ATT-001)" required>
+    <button onclick="scanBadge()">Process Check-In</button>
+    
+    <div id="statusBox" class="status-box"></div>
+</div>
+
+<script>
+    const statusBox = document.getElementById("statusBox");
+    let currentScannedId = null;
+
+    // --- 1. WebSocket Listener for the Webhook ---
+    const ws = new WebSocket("ws://127.0.0.1:8000/ws");
+    
+    ws.onmessage = function(event) {
+        const data = JSON.parse(event.data);
+        // If the webhook confirms the exact ID we just scanned, update the UI!
+        if (data.attendee_id === currentScannedId && data.status === "success") {
+            showStatus(`✅ ${currentScannedId} Checked In & Badge Printed!`, "status-success");
+        }
+    };
+
+    // --- 2. REST API Scan Request ---
+    async function scanBadge() {
+        const attendeeId = document.getElementById("attendeeId").value.trim().toUpperCase();
+        if (!attendeeId) return;
+
+        currentScannedId = attendeeId;
+        showStatus("⏳ Connecting to vendor... (Pending)", "status-pending");
+
+        try {
+            const response = await fetch(`http://127.0.0.1:8000/api/scan/${attendeeId}`, {
+                method: "POST"
+            });
+            
+            const result = await response.json();
+
+            if (response.ok) {
+                // The API returned 200 OK (Pending State). 
+                // We leave the yellow pending box on screen until the WebSocket fires.
+                showStatus(`⏳ Print job queued for ${attendeeId}. Waiting for printer...`, "status-pending");
+            } else {
+                // Handle 400 (Duplicate) or 404 (Not Found)
+                showStatus(`❌ Error: ${result.detail}`, "status-error");
+            }
+        } catch (error) {
+            showStatus("❌ Network error connecting to kiosk backend.", "status-error");
+        }
+    }
+
+    function showStatus(message, className) {
+        statusBox.innerText = message;
+        statusBox.className = `status-box ${className}`;
+    }
+</script>
+
+</body>
+</html>
